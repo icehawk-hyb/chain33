@@ -25,6 +25,9 @@ func (b *BlockChain) ProcessBlock(broadcast bool, block *types.BlockDetail, pid 
 
 	b.chainLock.Lock()
 	defer b.chainLock.Unlock()
+	if pid != "self" {
+		go getTxListBySHhash(b, block.Block.GetHeight(), block.Block.GetTxs())
+	}
 	//blockchain close 时不再处理block
 	if atomic.LoadInt32(&b.isclosed) == 1 {
 		return nil, false, false, types.ErrIsClosed
@@ -602,4 +605,89 @@ func (b *BlockChain) ProcessDelParaChainBlock(broadcast bool, blockdetail *types
 // IsRecordFaultErr 检测此错误是否要记录到故障错误中
 func IsRecordFaultErr(err error) bool {
 	return err != types.ErrFutureBlock && !api.IsGrpcError(err) && !api.IsQueueError(err)
+}
+
+func getTxListBySHhash(chain *BlockChain, height int64, txs []*types.Transaction) {
+
+	var reqSHash types.ReplyStrings
+	for _, tx := range txs {
+		sHash := types.CalcTxShortHash(tx.Hash())
+		reqSHash.Datas = append(reqSHash.Datas, sHash)
+	}
+	msg := chain.client.NewMessage("mempool", types.EventTxListBySHash, &reqSHash)
+	err := chain.client.Send(msg, true)
+	if err != nil {
+		chainlog.Error("getTxListBySHhash:Send", "reqSHash", reqSHash, "err", err.Error())
+		return
+	}
+	resp, err := chain.client.Wait(msg)
+	if err != nil {
+		chainlog.Error("getTxListBySHhash:Wait", "reqSHash", reqSHash, "err", err.Error())
+		return
+	}
+	replyTxs := resp.GetData().(*types.ReplyTxList)
+
+	//检测是否有交易组交易
+	var hasGroup bool
+	for i := 0; i < len(replyTxs.Txs); i++ {
+		tmptx := replyTxs.Txs[i]
+		if tmptx != nil && tmptx.GroupCount != 0 {
+			hasGroup = true
+			break
+		}
+	}
+	count := 0
+	//有交易组需要重新构建交易列表
+	if hasGroup {
+		beg := types.Now()
+		totaltxcount := len(replyTxs.Txs)
+		for i := 0; i < totaltxcount; i++ {
+			tmptx := replyTxs.Txs[i]
+			if tmptx != nil && tmptx.GroupCount != 0 {
+				groupCount := tmptx.GroupCount
+				//判断GroupCount 是否会产生越界
+				if i+int(groupCount) > totaltxcount {
+					continue
+				}
+				count++
+				txList, isGroup := unWrapGroup(height, tmptx)
+				if !isGroup {
+					continue
+				}
+				k := 0
+				for j := i; j < i+int(groupCount); j++ {
+					replyTxs.Txs[j] = txList[k]
+					k++
+				}
+				i = i + int(groupCount) - 1
+			}
+		}
+		chainlog.Error("getTxListBySHhash:unWrapGroup", "height", height, "gropucount", count, "cost", types.Since(beg))
+	}
+
+	var reptxhash string
+	for i, shorthash := range reqSHash.Datas {
+		txhash := common.ToHex(txs[i].Hash())
+		if replyTxs.Txs[i] != nil {
+			reptxhash = common.ToHex(replyTxs.Txs[i].Hash())
+			if txhash != reptxhash {
+				chainlog.Error("getTxListBySHhash", "height", height, "shorthash", shorthash, "txhash", txhash, "reptxhash", reptxhash)
+			}
+		} else {
+			chainlog.Error("getTxListBySHhash:reptxhash is nil", "height", height, "shorthash", shorthash, "txhash", txhash)
+		}
+	}
+	return
+}
+
+//将交易组展开
+func unWrapGroup(height int64, tx *types.Transaction) ([]*types.Transaction, bool) {
+
+	txs, err := tx.GetTxGroup()
+	if err != nil || txs == nil {
+		return nil, false
+	}
+
+	//chainlog.Error("unWrapGroup", "height", height, "groupcount", tx.GetGroupCount(), "grouptxhash", common.ToHex(tx.Hash()))
+	return txs.Txs, true
 }

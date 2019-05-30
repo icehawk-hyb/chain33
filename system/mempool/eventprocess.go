@@ -90,6 +90,10 @@ func (mem *Mempool) eventProcess() {
 		case types.EventGetProperFee:
 			// 获取对应排队策略中合适的手续费
 			mem.eventGetProperFee(msg)
+
+			// 消息类型EventTxListBySHash：通过shorthash获取对应的tx列表
+		case types.EventTxListBySHash:
+			mem.eventTxListBySHash(msg)
 		default:
 		}
 		mlog.Debug("mempool", "cost", types.Since(beg), "msg", types.GetEventName(int(msg.Ty)))
@@ -204,4 +208,18 @@ func (mem *Mempool) checkSign(data *queue.Message) *queue.Message {
 	mlog.Error("wrong tx", "err", types.ErrSign)
 	data.Data = types.ErrSign
 	return data
+}
+
+// eventTxListBySHash 通过shorthash或者hash获取tx列表
+func (mem *Mempool) eventTxListBySHash(msg *queue.Message) {
+	shashList := msg.GetData().(*types.ReplyStrings)
+	SHashOrHash := true
+	if SHashOrHash {
+		replytxList := mem.getTxListBySHash(shashList.Datas)
+		msg.Reply(mem.client.NewMessage("", types.EventReplyTxList, replytxList))
+	} else {
+		replytxList := mem.getTxListByHash(shashList.Datas)
+		msg.Reply(mem.client.NewMessage("", types.EventReplyTxList, replytxList))
+
+	}
 }

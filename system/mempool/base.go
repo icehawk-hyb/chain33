@@ -59,7 +59,7 @@ func NewMempool(cfg *types.Mempool) *Mempool {
 	pool.cfg = cfg
 	pool.poolHeader = make(chan struct{}, 2)
 	pool.removeBlockTicket = time.NewTicker(time.Minute)
-	pool.cache = newCache(cfg.MaxTxNumPerAccount, cfg.MaxTxLast)
+	pool.cache = newCache(cfg.MaxTxNumPerAccount, cfg.MaxTxLast, cfg.PoolCacheSize)
 	return pool
 }
 
@@ -389,4 +389,35 @@ func (mem *Mempool) setSync(status bool) {
 	mem.proxyMtx.Lock()
 	mem.sync = status
 	mem.proxyMtx.Unlock()
+}
+
+// getTxListBySHash 从SHashTxCache中获取对应shash的tx交易列表
+func (mem *Mempool) getTxListBySHash(sHashList []string) *types.ReplyTxList {
+	mem.proxyMtx.Lock()
+	defer mem.proxyMtx.Unlock()
+	beg := types.Now()
+	var replyTxList types.ReplyTxList
+	for _, sHash := range sHashList {
+		tx := mem.cache.GetSHashTxCache(sHash)
+		replyTxList.Txs = append(replyTxList.Txs, tx)
+	}
+	mlog.Debug("getTxListBySHash:success", "txscount", len(sHashList), "cost", types.Since(beg))
+
+	return &replyTxList
+}
+
+// getTxListByHash 从qcache中获取对应hash的tx交易列表
+func (mem *Mempool) getTxListByHash(hashList []string) *types.ReplyTxList {
+	mem.proxyMtx.Lock()
+	defer mem.proxyMtx.Unlock()
+
+	beg := types.Now()
+	var replyTxList types.ReplyTxList
+	for _, hash := range hashList {
+		tx := mem.cache.getTxByHash(hash)
+		replyTxList.Txs = append(replyTxList.Txs, tx)
+	}
+	mlog.Debug("getTxListByHash:success", "txscount", len(hashList), "cost", types.Since(beg))
+
+	return &replyTxList
 }
