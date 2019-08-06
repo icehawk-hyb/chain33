@@ -36,7 +36,7 @@ func Test_processP2P(t *testing.T) {
 	tx := &types.Transaction{Execer: []byte("coins"), Payload: payload, Fee: 4600, Expire: 2}
 	tx1 := &types.Transaction{Execer: []byte("coins"), Payload: payload, Fee: 460000000, Expire: 0}
 	tx2 := &types.Transaction{Execer: []byte("coins"), Payload: payload, Fee: 100, Expire: 1}
-	txGroup, _ := types.CreateTxGroup([]*types.Transaction{tx1, tx2})
+	txGroup, _ := types.CreateTxGroup([]*types.Transaction{tx1, tx2}, types.GInt("MinFee"))
 	gtx := txGroup.Tx()
 	txList := append([]*types.Transaction{}, minerTx, tx, tx1, tx2)
 	memTxList := append([]*types.Transaction{}, tx, gtx)
@@ -116,8 +116,8 @@ func Test_processP2P(t *testing.T) {
 		<-subChan //query block
 		for !ltBlockCache.contains(blockHash) {
 		}
-		ltBlock := ltBlockCache.get(blockHash).(*types.Block)
-		assert.True(t, bytes.Equal(rootHash, merkle.CalcMerkleRoot(ltBlock.Txs)))
+		cpBlock := *ltBlockCache.get(blockHash).(*types.Block)
+		assert.True(t, bytes.Equal(rootHash, merkle.CalcMerkleRoot(cpBlock.Txs)))
 
 		//query tx
 		sendChan <- &versionData{rawData: &types.P2PQueryData{Value: &types.P2PQueryData_TxReq{TxReq: &types.P2PTxReq{TxHash: tx.Hash()}}}}
@@ -147,7 +147,7 @@ func Test_processP2P(t *testing.T) {
 		<-subChan
 		assert.True(t, ltBlockCache.contains(blockHash))
 
-		ltBlock.TxHash = rootHash
+		cpBlock.TxHash = rootHash
 		sendChan <- &versionData{rawData: &types.P2PBlockTxReply{
 			BlockHash: blockHash,
 			Txs:       txList[0:],

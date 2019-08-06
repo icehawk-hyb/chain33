@@ -40,26 +40,7 @@ func (c *Chain33) CreateRawTransaction(in *rpctypes.CreateTx, result *interface{
 	if err != nil {
 		return err
 	}
-	//add tx fee setting
-	tx := &types.Transaction{}
-	err = types.Decode(reply, tx)
-	if err != nil {
-		return err
-	}
-	tx.Fee = inpb.Fee
-	//set proper fee if zero fee
-	if tx.Fee <= 0 {
-		proper, err := c.cli.GetProperFee(nil)
-		if err != nil {
-			return err
-		}
-		fee, err := tx.GetRealFee(proper.ProperFee)
-		if err != nil {
-			return err
-		}
-		tx.Fee = fee
-	}
-	*result = hex.EncodeToString(types.Encode(tx))
+	*result = hex.EncodeToString(reply)
 	return nil
 }
 
@@ -89,6 +70,17 @@ func (c *Chain33) CreateRawTxGroup(in *types.CreateTransactionGroup, result *int
 	}
 
 	*result = hex.EncodeToString(reply)
+	return nil
+}
+
+// CreateNoBlanaceTxs create multiple transaction with no balance
+func (c *Chain33) CreateNoBlanaceTxs(in *types.NoBalanceTxs, result *string) error {
+	tx, err := c.cli.CreateNoBalanceTxs(in)
+	if err != nil {
+		return err
+	}
+	grouptx := hex.EncodeToString(types.Encode(tx))
+	*result = grouptx
 	return nil
 }
 
